@@ -1,0 +1,105 @@
+// O codigo apresentado realiza a captura dos tempos de deteccao de sinais em dois sensores conectados a um Arduino, utilizando o Timer1 para medir o tempo de voo da onda mecanica em uma barra metalica. Ele registra o instante de mudanca de estado logico de cada sensor e armazena os dados para analise posterior. A coleta e feita por meio de interrupcoes externas, garantindo maior precisao na medicao dos eventos.
+
+// Este programa foi desenvolvido para o projeto de medicao da velocidade do som em metais e apresentado ao Instituto Federal de Educacao, Ciencia e Tecnologia do Piaui (IFPI). Seu objetivo e apoiar atividades de ensino experimental e possibilitar, com adaptacoes, o uso em aplicacoes industriais.
+
+#define MAX_SAMPLES 50  // Numero maximo de amostras coletadas para cada sensor
+#define sensor_A  2      // Define o pino do sensor A
+#define sensor_B  3      // Define o pino do sensor B
+
+// Arrays para armazenar os timestamps das mudancas nos sensores
+volatile uint16_t timestampsA[MAX_SAMPLES];
+volatile uint16_t timestampsB[MAX_SAMPLES];
+
+// Arrays para armazenar os estados logicos dos sensores (0 ou 1)
+volatile uint16_t logic_A[MAX_SAMPLES];
+volatile uint16_t logic_B[MAX_SAMPLES];
+
+// Contadores de amostras para cada sensor
+volatile uint8_t sample_countA = 0, sample_countB = 0;
+
+// Flags para indicar que a captura foi concluida
+volatile bool capture_doneA = false;
+volatile bool capture_doneB = false;
+
+void setup() {
+    Serial.begin(2000000);  // Inicia a comunicacao serial com baud rate de 2 Mbps
+    Serial.println("Inicializando...");
+
+    // Configura Timer1 para contar tempo com resolucao de 1/16MHz = 62.5ns
+    TCCR1A = 0;               // Modo normal do Timer1 (sem geracao de PWM)
+    TCCR1B = (1 << CS11);  // Prescaler de 8 (1 tick = 500ns)
+    TCNT1 = 0;               // Zera o contador do Timer1
+
+    // Configura os pinos dos sensores como entrada com pull-up interno
+    pinMode(sensor_A, INPUT_PULLUP);
+    pinMode(sensor_B, INPUT_PULLUP);
+
+    // Configura interrupcoes externas para detectar mudancas nos sensores
+    attachInterrupt(digitalPinToInterrupt(sensor_A), captureChangeA, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(sensor_B), captureChangeB, CHANGE);
+
+    Serial.println("Sistema pronto!");
+}
+
+// Funcao chamada por interrupcao quando ha mudanca no sensor A
+void captureChangeA() {
+    if (sample_countA < MAX_SAMPLES) {  // Se ainda ha espaco para mais amostras
+        timestampsA[sample_countA] = TCNT1;  // Armazena o tempo da mudanca
+        logic_A[sample_countA] = digitalRead(sensor_A); // Armazena o estado logico do sensor
+        sample_countA++;  // Incrementa o contador de amostras
+
+        if (sample_countA >= MAX_SAMPLES) {
+            capture_doneA = true; // Marca a captura como concluida
+        }
+
+        // Debug opcional para imprimir cada mudanca detectada
+        // Serial.print("A Mudanca Tempo: "); Serial.print(TCNT1);
+        // Serial.print(" Estado: "); Serial.println(logic_A[sample_countA - 1]);
+    }
+}
+
+// Funcao chamada por interrupcao quando ha mudanca no sensor B
+void captureChangeB() {
+    if (sample_countB < MAX_SAMPLES) {  // Se ainda ha espaco para mais amostras
+        timestampsB[sample_countB] = TCNT1;  // Armazena o tempo da mudanca
+        logic_B[sample_countB] = digitalRead(sensor_B); // Armazena o estado logico do sensor
+        sample_countB++;  // Incrementa o contador de amostras
+
+        if (sample_countB >= MAX_SAMPLES) {
+            capture_doneB = true; // Marca a captura como concluida
+        }
+
+        // Debug opcional para imprimir cada mudanca detectada
+        // Serial.print("B Tempo: "); Serial.print(TCNT1);
+        // Serial.print(" Estado: "); Serial.println(logic_B[sample_countB - 1]);
+    }
+}
+
+void loop() {
+    // Se a captura de ambos os sensores foi concluida, processa os dados
+    if (capture_doneA && capture_doneB) {
+        Serial.println("Captura concluida!");
+        Serial.println("Tempo A (ticks)\tEstado A\tTempo B (ticks)\tEstado B");
+
+        // Define o numero minimo de amostras entre os dois sensores
+        uint8_t min_samples = min(sample_countA, sample_countB);
+
+        // Exibe os dados coletados de ambos os sensores
+        for (uint8_t i = 0; i < min_samples; i++) {
+            Serial.print(timestampsA[i]); // Tempo do sensor A
+            Serial.print("\t");
+            Serial.print(logic_A[i]); // Estado do sensor A
+            Serial.print("\t");
+            Serial.print(timestampsB[i]); // Tempo do sensor B
+            Serial.print("\t");
+            Serial.println(logic_B[i]); // Estado do sensor B
+        }
+
+        // Reinicia o contador de tempo e as variaveis de controle para a proxima medicao
+        TCNT1 = 0;               
+        capture_doneA = false;
+        capture_doneB = false;
+        sample_countA = 0;
+        sample_countB = 0;
+    }
+}
